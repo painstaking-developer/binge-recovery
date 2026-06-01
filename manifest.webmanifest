@@ -1,7 +1,7 @@
 {
-  "name": "The Sandy Beach Collection",
-  "short_name": "Sandy Beach",
-  "description": "Recorded AA talks of Richard J. “Sandy” Beach (1931–2014).",
+  "name": "Binge Recovery",
+  "short_name": "Binge Recovery",
+  "description": "A web player for a large collection of recorded AA talks.",
   "id": "./",
   "start_url": "./",
   "scope": "./",

@@ -1,0 +1,17 @@
+{
+  "name": "The Sandy Beach Collection",
+  "short_name": "Sandy Beach",
+  "description": "Recorded AA talks of Richard J. “Sandy” Beach (1931–2014).",
+  "id": "./",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#f1f2f4",
+  "theme_color": "#f1f2f4",
+  "icons": [
+    { "src": "./icon-192.png", "sizes": "192x192", "type": "image/png" },
+    { "src": "./icon-512.png", "sizes": "512x512", "type": "image/png" },
+    { "src": "./icon-512-maskable.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+  ]
+}

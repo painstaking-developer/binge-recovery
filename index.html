@@ -13,10 +13,23 @@
     -->
     <meta name="referrer" content="no-referrer" />
     <meta name="description" content="The Sandy Beach Collection — recorded AA talks of Richard J. “Sandy” Beach (1931–2014)." />
+    <!--
+      Installable PWA + home-screen icon. Reliable background audio on iOS is
+      much better from an installed ("Add to Home Screen") app than a Safari tab,
+      so we ship a manifest + apple-touch-icon and the apple-mobile-web-app tags.
+      Vite rebases these root-relative URLs to the build `base` (e.g. the Pages
+      subpath); the manifest's own paths are relative, so they resolve too.
+    -->
+    <link rel="manifest" href="./manifest.webmanifest" />
+    <link rel="apple-touch-icon" href="./apple-touch-icon.png" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="default" />
+    <meta name="apple-mobile-web-app-title" content="Sandy Beach" />
+    <meta name="mobile-web-app-capable" content="yes" />
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <title>The Sandy Beach Collection</title>
-    <script type="module" crossorigin src="./assets/index-C0Tm4pOt.js"></script>
+    <script type="module" crossorigin src="./assets/index-BBGWNjsq.js"></script>
     <link rel="stylesheet" crossorigin href="./assets/index-D7GvyMOI.css">
   </head>
   <body>

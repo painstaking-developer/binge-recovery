@@ -22,10 +22,12 @@
  * whether the site is served from "/" or a project subpath "/<repo>/".
  *
  * Env overrides:
- *   PREVIEWS_SITE  site root that gets the e/ folder   (default: app/dist)
- *   PREVIEWS_JSON  source Recovery.json to read        (default: app/public/Recovery.json)
+ *   PREVIEWS_SITE         site root that gets the e/ folder   (default: app/dist)
+ *   PREVIEWS_JSON         source Recovery.json to read        (default: app/public/Recovery.json)
+ *   PREVIEWS_CONCURRENCY  max writes in flight at once         (default: 128)
  */
-import { readFileSync, existsSync, mkdirSync, writeFileSync, rmSync } from 'node:fs'
+import { readFileSync, existsSync, mkdirSync, rmSync } from 'node:fs'
+import { writeFile } from 'node:fs/promises'
 import { join, dirname, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
@@ -72,10 +74,12 @@ rmSync(eDir, { recursive: true, force: true })
 mkdirSync(eDir, { recursive: true })
 
 const tree = JSON.parse(readFileSync(srcJson, 'utf8'))
-let count = 0
 
-// Walk the tree carrying the folder trail (excluding the root) as context; that
-// trail (+ year) becomes each talk's preview description.
+// Phase 1 — walk the tree (cheap, in-memory) collecting one job per talk, carrying
+// the folder trail (excluding the root) as context; that trail (+ year) becomes the
+// preview description. We only collect here so the slow part (tens of thousands of
+// disk writes) can run in parallel below instead of blocking the walk.
+const jobs = []
 ;(function walk(node, trail, depth) {
   if (node.type === 'folder') {
     const next = depth === 0 ? [] : [...trail, node.name].filter(Boolean)
@@ -83,9 +87,22 @@ let count = 0
   } else if (node.type === 'file' && node.id) {
     const year = node.createdTime ? String(node.createdTime).slice(0, 4) : ''
     const desc = [trail.join(' · '), year].filter(Boolean).join(' · ') || SITE
-    writeFileSync(join(eDir, `${node.id}.html`), page(node.id, node.name || 'Talk', desc))
-    count++
+    jobs.push({ id: node.id, title: node.name || 'Talk', desc })
   }
 })(tree, [], 0)
 
-console.log(`✓ build-previews: wrote ${count} episode preview pages to ${eDir}`)
+// Phase 2 — drain the jobs through a bounded pool of async writes. The old version
+// wrote files one at a time with writeFileSync, so each syscall blocked the next;
+// disk writes overlap fine, so N workers pulling from a shared cursor keeps many in
+// flight at once (a big speedup) without opening all ~55k handles at once (EMFILE).
+const CONCURRENCY = Math.max(1, Number(process.env.PREVIEWS_CONCURRENCY) || 128)
+let cursor = 0
+async function worker() {
+  while (cursor < jobs.length) {
+    const j = jobs[cursor++]
+    await writeFile(join(eDir, `${j.id}.html`), page(j.id, j.title, j.desc))
+  }
+}
+await Promise.all(Array.from({ length: Math.min(CONCURRENCY, jobs.length) }, worker))
+
+console.log(`✓ build-previews: wrote ${jobs.length} episode preview pages to ${eDir} (concurrency ${CONCURRENCY})`)

@@ -11,8 +11,10 @@
  * Token handling: a worker can't read localStorage, so the page pushes the token
  * in (postMessage), AND we can pull one on demand over a MessageChannel — used
  * when the worker was restarted (lost its in-memory token) or when Drive 401s
- * mid-playback because the token expired (we ask the page to silently refresh,
- * then retry the range request once → seamless).
+ * (we ask again — the page may hold a newer one — and retry once). Nothing here
+ * can renew an expired token: that needs Google's popup, which only a tap can
+ * open. So the page answers with its cached token, or waits on a renewal popup
+ * a tap already opened; failing that we 401 and tell the page a tap is needed.
  *
  * Content-Range is synthesized from the chunk's Content-Length (CORS-safelisted,
  * so readable) plus a one-time `?fields=size` lookup, because Google does not
@@ -47,32 +49,44 @@ function valid() {
   return token && token.value && (!token.exp || token.exp > Date.now())
 }
 
-/** Ask each window client for a token over a MessageChannel; first valid wins. */
-function askClient(client, forceRefresh) {
+/** Ask every open page for a token at once over MessageChannels; first usable answer wins. */
+async function askClients() {
+  const clients = await self.clients.matchAll({ includeUncontrolled: true, type: 'window' })
+  if (!clients.length) return null
   return new Promise((resolve) => {
-    const ch = new MessageChannel()
-    // A forced (silent) refresh may hit the network; give it room. The cached
-    // path replies instantly, so this timeout only bites on real failures.
-    const timer = setTimeout(() => resolve(null), forceRefresh ? 8000 : 1500)
-    ch.port1.onmessage = (ev) => { clearTimeout(timer); resolve(ev.data) }
-    try {
-      client.postMessage({ type: 'sbb-token-request', forceRefresh }, [ch.port2])
-    } catch {
-      clearTimeout(timer)
-      resolve(null)
+    let left = clients.length
+    // Pages with nothing to give reply null at once; a page waiting on a renewal
+    // popup the user is still completing replies when it lands, so allow time.
+    const timer = setTimeout(() => resolve(null), 90000)
+    const answer = (tok) => {
+      if (tok && tok.value) { clearTimeout(timer); resolve(tok) }
+      else if (--left === 0) { clearTimeout(timer); resolve(null) }
+    }
+    for (const client of clients) {
+      const ch = new MessageChannel()
+      ch.port1.onmessage = (ev) => answer(ev.data)
+      try {
+        client.postMessage({ type: 'sbb-token-request' }, [ch.port2])
+      } catch {
+        answer(null)
+      }
     }
   })
 }
 
-/** A usable token value, pulling from the page if ours is missing/stale. */
-async function ensureToken(forceRefresh) {
-  if (!forceRefresh && valid()) return token.value
-  const clients = await self.clients.matchAll({ includeUncontrolled: true, type: 'window' })
-  for (const client of clients) {
-    const tok = await askClient(client, forceRefresh)
-    if (tok && tok.value) { token = tok; return tok.value }
-  }
-  return null
+/** A usable token value — ours, or (when missing/stale/rejected) one pulled from the page. */
+async function ensureToken(skipCache) {
+  if (!skipCache && valid()) return token.value
+  const tok = await askClients()
+  token = tok && tok.value ? tok : null
+  return token ? token.value : null
+}
+
+/** Tell open pages a tap is needed to renew sign-in, and fail this request. */
+async function authRequired() {
+  const clients = await self.clients.matchAll({ type: 'window' })
+  for (const client of clients) client.postMessage({ type: 'sbb-auth-required' })
+  return new Response('auth-required', { status: 401 })
 }
 
 function driveMedia(id, range, value) {
@@ -94,18 +108,19 @@ async function meta(id, value) {
 
 async function stream(id, request) {
   let value = await ensureToken(false)
-  if (!value) return new Response('auth-required', { status: 401 })
+  if (!value) return authRequired()
 
   const range = request.headers.get('Range')
   let res = await driveMedia(id, range, value)
 
-  // Token likely expired mid-playback — force a fresh one from the page, retry once.
-  if (res.status === 401 || res.status === 403) {
-    token = null
+  // 401 = token rejected (expired or revoked). Ask the page again — it may hold a
+  // newer one — and retry once. A 403 is a Drive refusal (e.g. a quota limit),
+  // not a sign-in problem, so it falls through as a plain error below.
+  if (res.status === 401) {
     value = await ensureToken(true)
-    if (!value) return new Response('auth-required', { status: 401 })
+    if (!value) return authRequired()
     res = await driveMedia(id, range, value)
-    if (res.status === 401 || res.status === 403) return new Response('auth-required', { status: 401 })
+    if (res.status === 401) return authRequired()
   }
   if (res.status !== 200 && res.status !== 206) {
     return new Response('drive-error', { status: res.status })

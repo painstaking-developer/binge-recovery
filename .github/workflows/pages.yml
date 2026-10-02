@@ -4,8 +4,9 @@
 # build-previews.mjs it calls). The PRIVATE source repo assembles the static site
 # into out/ and you drop out/ into this public repo. Everything here is already
 # built — the only build step is regenerating the per-talk link-preview pages
-# (e/<id>.html), which are NOT committed (there are tens of thousands of them) and
-# so are produced fresh on the runner from the slim Recovery.json at the repo root.
+# (e/<shortId>.html), which are NOT committed (there are tens of thousands of them)
+# and so are produced fresh on the runner from .github/scripts/previews.json (each
+# talk's short id → its name; .github/ is left out of the Pages upload).
 #
 # Enable it under Settings → Pages → Source: GitHub Actions.
 name: Deploy to GitHub Pages
@@ -35,12 +36,12 @@ jobs:
         with:
           node-version: 20
 
-      # Regenerate the per-episode preview pages into ./e/ from the slim
-      # Recovery.json at the repo root. No npm install — the script is plain Node.
+      # Regenerate the per-episode preview pages into ./e/ from the names-only
+      # previews.json. No npm install — the script is plain Node.
       - name: Build episode preview pages
         env:
           PREVIEWS_SITE: .
-          PREVIEWS_JSON: Recovery.json
+          PREVIEWS_JSON: .github/scripts/previews.json
         run: node .github/scripts/build-previews.mjs
 
       - uses: actions/upload-pages-artifact@v3
